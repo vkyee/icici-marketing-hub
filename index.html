@@ -1,0 +1,874 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="ICICI Hub">
+<title>ICICI Marketing Hub</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+body{background:#F9FAFB;min-height:100vh}
+:root{--o:#F47920;--ol:#FFF5ED}
+input,select,textarea,button{font-family:inherit;font-size:14px}
+@keyframes fadein{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.fade{animation:fadein .2s ease}
+@media print{.no-print{display:none!important}}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script>
+const {useState,useEffect,useRef}=React;
+const ce=React.createElement;
+const O="#F47920",OL="#FFF5ED";
+
+const CAT_STEPS={
+"Collaterals updates":["Brief closure","Assign to agency","Get & verify changes","Rework if required","Verify with product","Rework if required (Product)","Brand/Content approval","Release artwork"],
+"New collateral development":["Brief closure","Assign to agency","Get & verify changes","Rework if required","Verify with product","Rework if required (Product)","Brand/Content approval","Release artwork"],
+"D2C campaign":["Campaign CIN","CIN approval","Creative development","Creative approval","Campaign testing","Campaign go live"],
+"Strategic Projects":["Project initiation","Research & analysis","Stakeholder alignment","Execution","Review & iteration","Closure & reporting"],
+"Field visit":["Planning","Pre-visit briefing","Execution","Documentation","Report submission"],
+"Branch, ATM or Helpdesk branding":["Site assessment","Design finalization","Material procurement","Installation","Quality inspection","Sign-off"],
+"Corporate activity":["Planning","Approval","Preparation","Execution","Post-activity report"],
+"Events, Webinar etc.":["Event planning","Platform setup","Invites & promotions","Content prep","Execution","Post-event report"]
+};
+
+const CAT_COL={
+"Collaterals updates":"#8B5CF6",
+"New collateral development":"#3B82F6",
+"D2C campaign":"#10B981",
+"Strategic Projects":"#F59E0B",
+"Field visit":"#6366F1",
+"Branch, ATM or Helpdesk branding":"#EC4899",
+"Corporate activity":"#14B8A6",
+"Events, Webinar etc.":"#F97316"
+};
+
+const DEF_ADMIN={id:"adm1",name:"Team Admin",email:"admin@icici.in",password:"temp@123",role:"admin"};
+
+const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,5);
+const toDay=()=>new Date().toISOString().split("T")[0];
+const fmt=d=>d?new Date(d).toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"}):"-";
+
+// ── Storage (localStorage for standalone) ──
+const S={
+  get(k){try{const v=localStorage.getItem("mh:"+k);return v?JSON.parse(v):null}catch{return null}},
+  set(k,v){try{localStorage.setItem("mh:"+k,JSON.stringify(v))}catch{}}
+};
+
+function taskStatus(t){
+  if(!t.endDate)return"normal";
+  const now=new Date(),end=new Date(t.endDate);
+  const ref=t.status==="completed"&&t.completedAt?new Date(t.completedAt):now;
+  if(t.status==="completed"&&ref<=end)return"green";
+  if(t.status!=="completed"&&now<=end)return"normal";
+  return(ref-end)/864e5<=7?"yellow":"red";
+}
+
+function getPct(t){
+  if(!t.steps?.length)return t.status==="completed"?100:0;
+  return Math.round(t.steps.filter(s=>s.done).length/t.steps.length*100);
+}
+
+// ── UI Atoms ──
+function Btn({c,onClick,v="p",sz="m",dis,full,style:s={}}){
+  const bv={p:{bg:O,col:"#fff"},s:{bg:OL,col:O},o:{bg:"#fff",col:O,bdr:"1.5px solid "+O},g:{bg:"transparent",col:"#6B7280",bdr:"1px solid #E5E7EB"},d:{bg:"#FEF2F2",col:"#EF4444"}};
+  const bsz={s:"5px 11px",m:"8px 16px",l:"11px 22px"};
+  const b=bv[v];
+  return ce("button",{onClick,disabled:dis,style:{border:b.bdr||"none",borderRadius:8,padding:bsz[sz],fontWeight:600,cursor:dis?"not-allowed":"pointer",opacity:dis?.6:1,background:b.bg,color:b.col,fontSize:sz==="s"?12:14,display:"inline-flex",alignItems:"center",gap:4,width:full?"100%":"auto",justifyContent:"center",...s}},c);
+}
+
+function Inp({lbl,val,ch,type="text",ph,req,min,max}){
+  return ce("div",{style:{marginBottom:12}},
+    lbl&&ce("label",{style:{display:"block",fontSize:13,fontWeight:500,color:"#374151",marginBottom:4}},lbl,req&&ce("span",{style:{color:"#EF4444"}}," *")),
+    ce("input",{type,value:val,onChange:e=>ch(e.target.value),placeholder:ph,required:req,min,max,
+      style:{width:"100%",padding:"8px 11px",borderRadius:8,border:"1.5px solid #E5E7EB",fontSize:14,background:"#fff"},
+      onFocus:e=>e.target.style.borderColor=O,onBlur:e=>e.target.style.borderColor="#E5E7EB"})
+  );
+}
+
+function Sel({lbl,val,ch,opts,req}){
+  return ce("div",{style:{marginBottom:12}},
+    lbl&&ce("label",{style:{display:"block",fontSize:13,fontWeight:500,color:"#374151",marginBottom:4}},lbl,req&&ce("span",{style:{color:"#EF4444"}}," *")),
+    ce("select",{value:val,onChange:e=>ch(e.target.value),style:{width:"100%",padding:"8px 11px",borderRadius:8,border:"1.5px solid #E5E7EB",fontSize:14,background:"#fff"}},
+      ce("option",{value:""},"Select..."),
+      opts.map(o=>ce("option",{key:o.v,value:o.v},o.l))
+    )
+  );
+}
+
+function Card({ch,style:s={},click}){
+  return ce("div",{onClick:click,style:{background:"#fff",borderRadius:12,padding:"16px 18px",boxShadow:"0 1px 6px rgba(0,0,0,.07)",cursor:click?"pointer":"default",...s}},ch);
+}
+
+function Badge({txt,col}){
+  return ce("span",{style:{background:col+"22",color:col,borderRadius:20,fontWeight:700,fontSize:11,padding:"2px 8px",display:"inline-block",whiteSpace:"nowrap"}},txt);
+}
+
+function StatusBadge({t}){
+  const s=taskStatus(t);
+  const m={green:{bg:"#DCFCE7",c:"#16A34A",l:"On time"},yellow:{bg:"#FEF3C7",c:"#D97706",l:"Late <1wk"},red:{bg:"#FEE2E2",c:"#DC2626",l:"Overdue"},normal:{bg:"#F3F4F6",c:"#6B7280",l:t.status==="completed"?"Done":t.status==="in-progress"?"In Progress":"Pending"}};
+  const x=m[s]||m.normal;
+  return ce("span",{style:{background:x.bg,color:x.c,fontSize:11,fontWeight:700,padding:"3px 8px",borderRadius:20,whiteSpace:"nowrap"}},x.l);
+}
+
+function Prog({pct,col=O,h=6}){
+  return ce("div",{style:{background:"#F3F4F6",borderRadius:4,height:h,overflow:"hidden"}},
+    ce("div",{style:{width:pct+"%",background:col,height:"100%",borderRadius:4,transition:"width .3s"}})
+  );
+}
+
+function Modal({open,close,title,ch,w=480}){
+  if(!open)return null;
+  return ce("div",{style:{position:"fixed",inset:0,background:"rgba(0,0,0,.5)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16},onClick:close},
+    ce("div",{style:{background:"#fff",borderRadius:16,width:"100%",maxWidth:w,maxHeight:"90vh",overflow:"auto"},onClick:e=>e.stopPropagation()},
+      ce("div",{style:{padding:"16px 20px",borderBottom:"1px solid #F3F4F6",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,background:"#fff",zIndex:1}},
+        ce("h3",{style:{fontSize:16,fontWeight:700,margin:0}},title),
+        ce("button",{onClick:close,style:{border:"none",background:"none",fontSize:22,cursor:"pointer",color:"#9CA3AF",lineHeight:1}},"×")
+      ),
+      ce("div",{style:{padding:"18px 20px"}},ch)
+    )
+  );
+}
+
+// ── Login ──
+function Login({onLogin}){
+  const [email,setEmail]=useState("admin@icici.in");
+  const [pass,setPass]=useState("temp@123");
+  const [err,setErr]=useState("");
+  const [ld,setLd]=useState(false);
+
+  function go(e){
+    e.preventDefault();setLd(true);setErr("");
+    let users=S.get("users");
+    if(!users?.length){users=[DEF_ADMIN];S.set("users",users);}
+    const u=users.find(x=>x.email===email&&x.password===pass);
+    if(u){S.set("session",u.id);onLogin(u);}
+    else setErr("Invalid credentials. Default: temp@123");
+    setLd(false);
+  }
+
+  return ce("div",{style:{minHeight:"100vh",background:OL,display:"flex",alignItems:"center",justifyContent:"center",padding:16}},
+    ce("div",{style:{width:"100%",maxWidth:380}},
+      ce("div",{style:{textAlign:"center",marginBottom:24}},
+        ce("div",{style:{width:68,height:68,background:O,borderRadius:18,margin:"0 auto 12px",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 4px 18px #F4792055"}},
+          ce("span",{style:{color:"#fff",fontSize:32,fontWeight:900,fontStyle:"italic"}},"i")),
+        ce("h1",{style:{fontSize:21,fontWeight:800,color:"#1F2937",margin:"0 0 4px"}},"ICICI Marketing Hub"),
+        ce("p",{style:{color:"#6B7280",fontSize:13,margin:0}},"AI-Powered Task Management")
+      ),
+      ce(Card,{ch:ce("form",{onSubmit:go},
+        ce(Inp,{lbl:"Email",val:email,ch:setEmail,type:"email",req:true}),
+        ce(Inp,{lbl:"Password",val:pass,ch:setPass,type:"password",req:true}),
+        err&&ce("div",{style:{background:"#FEF2F2",color:"#EF4444",padding:"8px 12px",borderRadius:8,fontSize:13,marginBottom:10}},err),
+        ce(Btn,{c:ld?"Signing in...":"Sign In →",sz:"l",dis:ld,full:true})
+      )}),
+      ce("p",{style:{textAlign:"center",color:"#9CA3AF",fontSize:12,marginTop:12}},"Default: admin@icici.in / temp@123")
+    )
+  );
+}
+
+// ── Sidebar (desktop) ──
+function Sidebar({user,page,setPage}){
+  const a=user.role==="admin"||user.role==="co-admin";
+  const nav=[
+    {id:"dash",ic:"📊",l:"Dashboard"},
+    {id:"tasks",ic:"✅",l:"My Tasks"},
+    ...(a?[{id:"all",ic:"📋",l:"All Tasks"}]:[]),
+    {id:"create",ic:"✦",l:"Create Task"},
+    ...(a?[{id:"team",ic:"👥",l:"Team"},{id:"reports",ic:"📈",l:"Reports"}]:[]),
+    {id:"profile",ic:"👤",l:"Profile"}
+  ];
+  return ce("div",{className:"no-print",style:{width:200,background:"#fff",height:"100vh",position:"fixed",left:0,top:0,borderRight:"1px solid #F3F4F6",display:"flex",flexDirection:"column",zIndex:100}},
+    ce("div",{style:{padding:"16px 12px",borderBottom:"1px solid #F3F4F6",display:"flex",alignItems:"center",gap:9}},
+      ce("div",{style:{width:32,height:32,background:O,borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center"}},
+        ce("span",{style:{color:"#fff",fontSize:15,fontWeight:900,fontStyle:"italic"}},"i")),
+      ce("div",null,
+        ce("div",{style:{fontSize:12,fontWeight:700,color:"#1F2937"}},"Marketing Hub"),
+        ce("div",{style:{fontSize:10,color:"#9CA3AF"}},"ICICI Bank"))
+    ),
+    ce("div",{style:{padding:"10px 12px",borderBottom:"1px solid #F3F4F6"}},
+      ce("div",{style:{fontSize:13,fontWeight:600,color:"#1F2937"}},user.name),
+      ce("div",{style:{fontSize:11,color:"#9CA3AF"}},user.role==="admin"?"Admin":user.role==="co-admin"?"Co-Admin":"Member")
+    ),
+    ce("nav",{style:{flex:1,padding:"8px",overflowY:"auto"}},
+      nav.map(item=>ce("div",{key:item.id,onClick:()=>setPage(item.id),style:{display:"flex",alignItems:"center",gap:9,padding:"8px 10px",borderRadius:8,cursor:"pointer",marginBottom:2,background:page===item.id?OL:"transparent",color:page===item.id?O:"#374151",fontWeight:page===item.id?600:400,fontSize:13,transition:"background .15s"}},
+        ce("span",{style:{fontSize:14}},item.ic),item.l))
+    )
+  );
+}
+
+// ── Bottom Nav (mobile) ──
+function BottomNav({user,page,setPage}){
+  const a=user.role==="admin"||user.role==="co-admin";
+  const items=[
+    {id:"dash",ic:"📊",l:"Home"},
+    {id:a?"all":"tasks",ic:"✅",l:"Tasks"},
+    {id:"create",ic:"✦",l:"New"},
+    ...(a?[{id:"reports",ic:"📈",l:"Reports"}]:[]),
+    {id:"profile",ic:"👤",l:"Me"}
+  ];
+  return ce("div",{className:"no-print",style:{position:"fixed",bottom:0,left:0,right:0,background:"#fff",borderTop:"1px solid #F3F4F6",display:"flex",zIndex:100,paddingBottom:"env(safe-area-inset-bottom,4px)"}},
+    items.map(item=>ce("div",{key:item.id,onClick:()=>setPage(item.id),style:{flex:1,padding:"8px 4px 4px",textAlign:"center",cursor:"pointer"}},
+      ce("div",{style:{fontSize:18}},[item.ic]),
+      ce("div",{style:{fontSize:9,color:page===item.id?O:"#6B7280",fontWeight:page===item.id?700:400,marginTop:2}},[item.l])
+    ))
+  );
+}
+
+// ── Stat Card ──
+function StatCard({lbl,val,ic,col=O}){
+  return ce(Card,{ch:ce("div",{style:{display:"flex",alignItems:"center",gap:12}},
+    ce("div",{style:{width:44,height:44,borderRadius:11,background:col+"18",display:"flex",alignItems:"center",justifyContent:"center",fontSize:19,flexShrink:0}},ic),
+    ce("div",null,
+      ce("div",{style:{fontSize:23,fontWeight:700,color:"#1F2937",lineHeight:1}},val),
+      ce("div",{style:{fontSize:12,color:"#6B7280",marginTop:2}},lbl))
+  )});
+}
+
+// ── Dashboard ──
+function Dashboard({user,tasks,users,setPage,setParams}){
+  const a=user.role==="admin"||user.role==="co-admin";
+  const myT=a?tasks:tasks.filter(t=>t.assignedTo===user.id||t.createdBy===user.id);
+  const now=new Date();
+  const tot=myT.length,done=myT.filter(t=>t.status==="completed").length,
+    prog=myT.filter(t=>t.status==="in-progress").length,
+    ovd=myT.filter(t=>t.status!=="completed"&&t.endDate&&new Date(t.endDate)<now).length;
+  const catMap={};myT.forEach(t=>{catMap[t.category||"Other"]=(catMap[t.category||"Other"]||0)+1;});
+  const hr=now.getHours();
+  const greet=hr<12?"Good Morning":hr<17?"Good Afternoon":"Good Evening";
+
+  return ce("div",{className:"fade"},
+    ce("div",{style:{marginBottom:20}},
+      ce("h2",{style:{fontSize:20,fontWeight:700,margin:"0 0 4px"}},greet+", "+user.name.split(" ")[0]+" 👋"),
+      ce("p",{style:{color:"#6B7280",margin:0,fontSize:13}},now.toLocaleDateString("en-IN",{weekday:"long",day:"numeric",month:"long",year:"numeric"}))
+    ),
+    ce("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:11,marginBottom:18}},
+      ce(StatCard,{lbl:"Total",val:tot,ic:"📋"}),
+      ce(StatCard,{lbl:"Completed",val:done,ic:"✅",col:"#22C55E"}),
+      ce(StatCard,{lbl:"In Progress",val:prog,ic:"⚡",col:"#3B82F6"}),
+      ce(StatCard,{lbl:"Overdue",val:ovd,ic:"⚠",col:"#EF4444"})
+    ),
+    a&&ce("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:14,marginBottom:14}},
+      ce(Card,{ch:ce("div",null,
+        ce("h3",{style:{margin:"0 0 12px",fontSize:14,fontWeight:700}},"By Category"),
+        Object.keys(catMap).length?
+          Object.entries(catMap).map(([cat,cnt])=>ce("div",{key:cat,style:{marginBottom:9}},
+            ce("div",{style:{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:3}},
+              ce("span",{style:{color:"#374151",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:"72%"}},cat),
+              ce("span",{style:{fontWeight:700,color:CAT_COL[cat]||O,flexShrink:0}},cnt)
+            ),ce(Prog,{pct:tot?Math.round(cnt/tot*100):0,col:CAT_COL[cat]||O})
+          )):ce("p",{style:{color:"#9CA3AF",fontSize:13}},"No tasks yet")
+      )}),
+      ce(Card,{ch:ce("div",null,
+        ce("h3",{style:{margin:"0 0 12px",fontSize:14,fontWeight:700}},"Team Performance"),
+        users.filter(u=>u.role==="user").length?
+          users.filter(u=>u.role==="user").map(u=>{
+            const ut=tasks.filter(t=>t.assignedTo===u.id);
+            const uc=ut.filter(t=>t.status==="completed").length;
+            const pct=ut.length?Math.round(uc/ut.length*100):0;
+            return ce("div",{key:u.id,style:{marginBottom:9}},
+              ce("div",{style:{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:3}},
+                ce("span",null,u.name),ce("span",{style:{fontWeight:700,color:O}},uc+"/"+ut.length)),
+              ce(Prog,{pct})
+            );
+          }):ce("p",{style:{color:"#9CA3AF",fontSize:13}},"No team members yet")
+      )})
+    ),
+    ce(Card,{ch:ce("div",null,
+      ce("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}},
+        ce("h3",{style:{fontSize:14,fontWeight:700,margin:0}},"Recent Tasks"),
+        ce(Btn,{c:"View All →",v:"s",sz:"s",onClick:()=>setPage(a?"all":"tasks")})
+      ),
+      myT.slice(0,6).map(t=>ce("div",{key:t.id,onClick:()=>{setParams({tid:t.id});setPage("detail");},
+        style:{display:"flex",alignItems:"center",gap:9,padding:"8px 0",borderBottom:"1px solid #F9FAFB",cursor:"pointer"}},
+        ce("div",{style:{width:6,height:6,borderRadius:"50%",background:CAT_COL[t.category]||O,flexShrink:0}}),
+        ce("div",{style:{flex:1,minWidth:0}},
+          ce("div",{style:{fontSize:13,fontWeight:500,color:"#1F2937",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},t.title),
+          ce("div",{style:{fontSize:11,color:"#9CA3AF"}},t.category+" · "+fmt(t.endDate))
+        ),ce(StatusBadge,{t})
+      )),
+      !myT.length&&ce("div",{style:{textAlign:"center",padding:"30px 0",color:"#9CA3AF"}},
+        ce("div",{style:{fontSize:36,marginBottom:8}},"📭"),
+        ce("div",{style:{fontSize:13}},"No tasks yet. Create your first one!"))
+    )})
+  );
+}
+
+// ── Task List ──
+function TaskList({user,tasks,users,setPage,setParams,all}){
+  const [flt,setFlt]=useState("all");
+  const [catF,setCatF]=useState("");
+  const [srch,setSrch]=useState("");
+  const base=all?tasks:tasks.filter(t=>t.assignedTo===user.id||t.createdBy===user.id);
+  const list=base.filter(t=>{
+    if(flt!=="all"&&t.status!==flt)return false;
+    if(catF&&t.category!==catF)return false;
+    if(srch&&!t.title.toLowerCase().includes(srch.toLowerCase()))return false;
+    return true;
+  });
+  return ce("div",{className:"fade"},
+    ce("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}},
+      ce("h2",{style:{fontSize:20,fontWeight:700,margin:0}},all?"All Tasks":"My Tasks"),
+      ce(Btn,{c:"+ New Task",onClick:()=>setPage("create")})
+    ),
+    ce("div",{style:{display:"flex",gap:5,marginBottom:10,flexWrap:"wrap"}},
+      ["all","pending","in-progress","completed"].map(s=>ce("button",{key:s,onClick:()=>setFlt(s),style:{padding:"5px 12px",borderRadius:20,fontSize:12,fontWeight:500,cursor:"pointer",border:"none",background:flt===s?O:"#F3F4F6",color:flt===s?"#fff":"#374151"}},
+        s==="all"?"All":s==="in-progress"?"In Progress":s.charAt(0).toUpperCase()+s.slice(1)))
+    ),
+    ce("div",{style:{display:"flex",gap:7,marginBottom:14,flexWrap:"wrap"}},
+      ce("input",{placeholder:"🔍 Search...",value:srch,onChange:e=>setSrch(e.target.value),style:{flex:1,minWidth:160,padding:"7px 11px",borderRadius:8,border:"1.5px solid #E5E7EB",fontSize:13,background:"#fff"}}),
+      ce("select",{value:catF,onChange:e=>setCatF(e.target.value),style:{padding:"7px 11px",borderRadius:8,border:"1.5px solid #E5E7EB",fontSize:13,background:"#fff"}},
+        ce("option",{value:""},"All Categories"),
+        Object.keys(CAT_STEPS).map(c=>ce("option",{key:c,value:c},c))
+      )
+    ),
+    ce("div",{style:{display:"flex",flexDirection:"column",gap:9}},
+      list.map(t=>{
+        const pct=getPct(t),sc=taskStatus(t);
+        const bc=sc==="red"?"#EF4444":sc==="yellow"?"#F59E0B":sc==="green"?"#22C55E":"#E5E7EB";
+        const asgn=users.find(u=>u.id===t.assignedTo);
+        return ce(Card,{key:t.id,style:{borderLeft:"4px solid "+bc},click:()=>{setParams({tid:t.id});setPage("detail");}},
+          ce("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8,marginBottom:6}},
+            ce("div",{style:{flex:1}},
+              ce("div",{style:{fontSize:14,fontWeight:600,color:"#1F2937",marginBottom:5}},t.title),
+              ce("div",{style:{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}},
+                ce(Badge,{txt:t.category,col:CAT_COL[t.category]||O}),
+                asgn&&ce("span",{style:{fontSize:11,color:"#6B7280"}},"👤 "+asgn.name)
+              )
+            ),ce(StatusBadge,{t})
+          ),
+          t.description&&ce("p",{style:{margin:"4px 0 6px",fontSize:12,color:"#6B7280",overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}},t.description),
+          ce("div",{style:{display:"flex",alignItems:"center",gap:8}},
+            ce("div",{style:{flex:1}},ce(Prog,{pct,col:CAT_COL[t.category]||O})),
+            ce("span",{style:{fontSize:11,color:"#6B7280",flexShrink:0}},pct+"%"),
+            ce("span",{style:{fontSize:11,color:"#6B7280",flexShrink:0}},"Due: "+fmt(t.endDate))
+          )
+        );
+      }),
+      !list.length&&ce(Card,{ch:ce("div",{style:{textAlign:"center",padding:"36px 0",color:"#9CA3AF"}},
+        ce("div",{style:{fontSize:38,marginBottom:8}},"📭"),
+        ce("div",{style:{fontSize:15,fontWeight:500}},"No tasks found")
+      )})
+    )
+  );
+}
+
+// ── Task Detail ──
+function TaskDetail({tid,user,tasks,users,setTasks,setPage}){
+  const t=tasks.find(x=>x.id===tid);
+  const [cmt,setCmt]=useState("");
+  const [showRA,setShowRA]=useState(false);
+  const [raId,setRaId]=useState("");
+  if(!t)return ce(Card,{ch:"Task not found."});
+  const a=user.role==="admin"||user.role==="co-admin";
+  const canEdit=t.assignedTo===user.id||a;
+  const asgn=users.find(u=>u.id===t.assignedTo);
+  const pct=getPct(t),sc=taskStatus(t);
+  const topCol=sc==="red"?"#EF4444":sc==="yellow"?"#F59E0B":sc==="green"?"#22C55E":O;
+
+  function upd(x){
+    const u=tasks.map(tk=>tk.id===tid?{...tk,...x}:tk);
+    setTasks(u);S.set("tasks",u);
+  }
+
+  function toggleStep(i){
+    const steps=t.steps.map((s,ix)=>ix===i?{...s,done:!s.done,doneAt:!s.done?new Date().toISOString():null}:s);
+    const allDone=steps.every(s=>s.done);
+    upd({steps,...(allDone&&t.status!=="completed"?{status:"completed",completedAt:new Date().toISOString()}:(!allDone&&t.status==="completed"?{status:"in-progress",completedAt:null}:{}))});
+  }
+
+  function addCmt(){
+    if(!cmt.trim())return;
+    const comments=[...(t.comments||[]),{id:uid(),userId:user.id,userName:user.name,text:cmt,ts:new Date().toISOString()}];
+    upd({comments});setCmt("");
+  }
+
+  return ce("div",{className:"fade"},
+    ce("div",{style:{display:"flex",alignItems:"center",gap:10,marginBottom:16}},
+      ce(Btn,{c:"← Back",v:"s",sz:"s",onClick:()=>setPage(a?"all":"tasks")}),
+      ce("h2",{style:{margin:0,fontSize:17,fontWeight:700,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},t.title)
+    ),
+    ce("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:14,marginBottom:14}},
+      ce(Card,{style:{borderTop:"4px solid "+topCol},ch:ce("div",null,
+        ce("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}},
+          ce(Badge,{txt:t.category,col:CAT_COL[t.category]||O}),ce(StatusBadge,{t})
+        ),
+        t.description&&ce("p",{style:{color:"#374151",fontSize:13,margin:"0 0 12px",lineHeight:1.6}},t.description),
+        ce("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9,marginBottom:12,fontSize:13}},
+          ce("div",null,ce("div",{style:{fontSize:11,color:"#9CA3AF",marginBottom:2}},"Assigned To"),ce("div",{style:{fontWeight:500}},asgn?.name||"Unassigned")),
+          ce("div",null,ce("div",{style:{fontSize:11,color:"#9CA3AF",marginBottom:2}},"Start Date"),ce("div",{style:{fontWeight:500}},fmt(t.startDate))),
+          ce("div",null,ce("div",{style:{fontSize:11,color:"#9CA3AF",marginBottom:2}},"End Date"),ce("div",{style:{fontWeight:500,color:sc==="red"||sc==="yellow"?"#EF4444":"inherit"}},fmt(t.endDate)))
+        ),
+        ce("div",{style:{marginBottom:12}},
+          ce("div",{style:{display:"flex",justifyContent:"space-between",marginBottom:4,fontSize:12}},
+            ce("span",null,"Progress"),ce("span",{style:{color:O,fontWeight:700}},pct+"%")
+          ),ce(Prog,{pct,h:8})
+        ),
+        ce("div",{style:{display:"flex",gap:7,flexWrap:"wrap"}},
+          t.status==="pending"&&canEdit&&ce(Btn,{c:"▶ Start",sz:"s",onClick:()=>upd({status:"in-progress"})}),
+          a&&ce(Btn,{c:"👥 Reassign",v:"o",sz:"s",onClick:()=>setShowRA(true)}),
+          t.status!=="completed"&&canEdit&&ce(Btn,{c:"✓ Mark Done",v:"s",sz:"s",onClick:()=>upd({status:"completed",completedAt:new Date().toISOString()})})
+        )
+      )}),
+      ce(Card,{ch:ce("div",null,
+        ce("h3",{style:{margin:"0 0 12px",fontSize:14,fontWeight:700}},"Task Steps"),
+        t.steps?.length?
+          t.steps.map((step,i)=>ce("div",{key:i,style:{display:"flex",gap:9,marginBottom:9,alignItems:"flex-start"}},
+            ce("div",{onClick:()=>canEdit&&toggleStep(i),style:{width:20,height:20,borderRadius:"50%",flexShrink:0,marginTop:1,border:"2px solid "+(step.done?"#22C55E":"#D1D5DB"),background:step.done?"#22C55E":"#fff",cursor:canEdit?"pointer":"default",display:"flex",alignItems:"center",justifyContent:"center",transition:"all .2s"}},
+              step.done&&ce("span",{style:{color:"#fff",fontSize:10,fontWeight:700}},"✓")
+            ),
+            ce("div",{style:{flex:1}},
+              ce("div",{style:{fontSize:13,color:step.done?"#9CA3AF":"#1F2937",textDecoration:step.done?"line-through":"none",fontWeight:500}},
+                ce("span",{style:{color:"#9CA3AF",fontSize:11}},(i+1)+". "),step.name
+              ),
+              step.doneAt&&ce("div",{style:{fontSize:10,color:"#9CA3AF",marginTop:1}},
+                "✓ "+new Date(step.doneAt).toLocaleString("en-IN",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"}))
+            )
+          )):ce("p",{style:{color:"#9CA3AF",fontSize:13}},"No steps defined")
+      )})
+    ),
+    ce(Card,{ch:ce("div",null,
+      ce("h3",{style:{margin:"0 0 12px",fontSize:14,fontWeight:700}},"Comments"),
+      ce("div",{style:{maxHeight:240,overflowY:"auto",marginBottom:12}},
+        (t.comments||[]).map(c=>ce("div",{key:c.id,style:{padding:"7px 0",borderBottom:"1px solid #F9FAFB"}},
+          ce("div",{style:{display:"flex",gap:7,alignItems:"center",marginBottom:3}},
+            ce("div",{style:{width:24,height:24,borderRadius:"50%",background:O+"20",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:O,flexShrink:0}},c.userName.charAt(0)),
+            ce("span",{style:{fontSize:12,fontWeight:600}},c.userName),
+            ce("span",{style:{fontSize:10,color:"#9CA3AF"}},new Date(c.ts).toLocaleString("en-IN",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"}))
+          ),
+          ce("p",{style:{margin:"0 0 0 31px",fontSize:13,color:"#374151"}},c.text)
+        )),
+        !(t.comments||[]).length&&ce("p",{style:{color:"#9CA3AF",fontSize:13,textAlign:"center",padding:"12px 0"}},"No comments yet")
+      ),
+      ce("div",{style:{display:"flex",gap:7}},
+        ce("input",{placeholder:"Add comment...",value:cmt,onChange:e=>setCmt(e.target.value),
+          onKeyDown:e=>e.key==="Enter"&&addCmt(),
+          style:{flex:1,padding:"8px 11px",borderRadius:8,border:"1.5px solid #E5E7EB",fontSize:13,background:"#fff"}}),
+        ce(Btn,{c:"Send",sz:"s",dis:!cmt.trim(),onClick:addCmt})
+      )
+    )}),
+    ce(Modal,{open:showRA,close:()=>setShowRA(false),title:"Reassign Task",ch:ce("div",null,
+      ce(Sel,{lbl:"Assign to",val:raId,ch:setRaId,opts:users.filter(u=>u.id!==user.id).map(u=>({v:u.id,l:u.name+" ("+u.role+")"}))}),
+      ce("div",{style:{display:"flex",gap:7,justifyContent:"flex-end",marginTop:8}},
+        ce(Btn,{c:"Cancel",v:"g",onClick:()=>setShowRA(false)}),
+        ce(Btn,{c:"Reassign",dis:!raId,onClick:()=>{upd({assignedTo:raId});setShowRA(false);}})
+      )
+    )})
+  );
+}
+
+// ── Create Task ──
+function CreateTask({user,users,tasks,setTasks,setPage,cCats,setCCats}){
+  const [mode,setMode]=useState("ai");
+  const [msgs,setMsgs]=useState([]);
+  const [aiIn,setAiIn]=useState("");
+  const [aiLd,setAiLd]=useState(false);
+  const chatRef=useRef(null);
+  const [title,setTitle]=useState("");
+  const [desc,setDesc]=useState("");
+  const [cat,setCat]=useState("");
+  const [asgn,setAsgn]=useState("");
+  const [sDate,setSDate]=useState(toDay());
+  const [eDate,setEDate]=useState("");
+  const [steps,setSteps]=useState([]);
+  const a=user.role==="admin"||user.role==="co-admin";
+  const allCats=[...Object.keys(CAT_STEPS),...cCats.map(c=>c.name)];
+  const getSteps=c=>CAT_STEPS[c]||(cCats.find(x=>x.name===c)?.steps)||[];
+
+  async function sendAI(){
+    if(!aiIn.trim())return;
+    const um={role:"user",content:aiIn};
+    const newMsgs=[...msgs,um];
+    setMsgs(newMsgs);setAiIn("");setAiLd(true);
+    const sys=`You are TaskBot for ICICI Bank Marketing team.
+Categories: ${allCats.join(", ")}.
+Team members: ${users.filter(u=>u.role==="user").map(u=>u.name+" (id:"+u.id+")").join(", ")}.
+Today: ${toDay()}.
+Default steps by category: ${JSON.stringify(CAT_STEPS)}.
+When you have enough info to create a task, respond ONLY with valid JSON:
+{"action":"create","task":{"title":"","description":"","category":"","startDate":"YYYY-MM-DD","endDate":"YYYY-MM-DD","assignedTo":"user_id_or_null","steps":["step1","step2"]},"message":"brief confirmation"}
+If you need more information first: {"action":"ask","message":"your question"}
+Always suggest appropriate steps based on the category.`;
+    let raw="";
+    try{
+      const r=await fetch("https://api.anthropic.com/v1/messages",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:800,system:sys,messages:newMsgs.map(m=>({role:m.role,content:m.content}))})
+      });
+      const d=await r.json();
+      raw=d.content?.[0]?.text||"Sorry, AI is unavailable. Please use Manual mode.";
+    }catch{
+      raw='{"action":"ask","message":"AI is temporarily unavailable. Please switch to Manual mode to create your task."}';
+    }
+    let parsed;
+    try{const m=raw.match(/\{[\s\S]*\}/);parsed=m?JSON.parse(m[0]):{action:"ask",message:raw};}
+    catch{parsed={action:"ask",message:raw};}
+    setMsgs([...newMsgs,{role:"assistant",content:raw,parsed}]);
+    setAiLd(false);
+    setTimeout(()=>{if(chatRef.current)chatRef.current.scrollTop=9999;},80);
+  }
+
+  function confirmTask(td){
+    const st=(td.steps||[]).map((s,i)=>({id:i,name:s,done:false,doneAt:null}));
+    const nt={id:uid(),title:td.title,description:td.description||"",category:td.category,
+      assignedTo:a?(td.assignedTo||null):user.id,createdBy:user.id,
+      startDate:td.startDate||toDay(),endDate:td.endDate||"",status:"pending",
+      steps:st,comments:[],createdAt:new Date().toISOString()};
+    if(!CAT_STEPS[td.category]&&!cCats.find(c=>c.name===td.category)){
+      const upd=[...cCats,{name:td.category,steps:td.steps||[]}];
+      setCCats(upd);S.set("custom_cats",upd);
+    }
+    const upd=[...tasks,nt];setTasks(upd);S.set("tasks",upd);
+    setMsgs([{role:"assistant",parsed:{action:"ask",message:'✅ Task "'+td.title+'" created! Tell me about another task or switch to Manual mode.'}}]);
+  }
+
+  function createManual(){
+    if(!title||!cat)return;
+    const defSteps=getSteps(cat);
+    const finalSteps=steps.length?steps:defSteps.map(s=>({name:s}));
+    const st=finalSteps.map((s,i)=>({id:i,name:typeof s==="string"?s:s.name,done:false,doneAt:null}));
+    const nt={id:uid(),title,description:desc,category:cat,assignedTo:a?(asgn||null):user.id,
+      createdBy:user.id,startDate:sDate,endDate:eDate,status:"pending",steps:st,comments:[],createdAt:new Date().toISOString()};
+    const upd=[...tasks,nt];setTasks(upd);S.set("tasks",upd);setPage("tasks");
+  }
+
+  return ce("div",{className:"fade"},
+    ce("h2",{style:{fontSize:20,fontWeight:700,marginBottom:16}},"Create New Task"),
+    ce("div",{style:{display:"flex",gap:0,marginBottom:18,background:"#F3F4F6",padding:3,borderRadius:9,width:"fit-content"}},
+      ["ai","manual"].map(m=>ce("button",{key:m,onClick:()=>setMode(m),style:{padding:"6px 16px",borderRadius:7,border:"none",cursor:"pointer",fontSize:13,fontWeight:600,background:mode===m?"#fff":"transparent",color:mode===m?O:"#6B7280",boxShadow:mode===m?"0 1px 4px rgba(0,0,0,.1)":"none"}},
+        m==="ai"?"🤖 AI Create":"✏️ Manual"))
+    ),
+    mode==="ai"?ce("div",null,
+      ce(Card,{style:{background:OL,border:"1px solid "+O+"33",marginBottom:12},ch:
+        ce("p",{style:{margin:0,fontSize:13,color:"#374151",lineHeight:1.6}},
+          '💡 Try: "Create a D2C campaign for savings account promotion, deadline end of next month" or "Update the salary account brochure by Friday"')
+      }),
+      ce(Card,{ch:ce("div",null,
+        ce("div",{ref:chatRef,style:{minHeight:180,maxHeight:360,overflowY:"auto",marginBottom:12}},
+          !msgs.length&&ce("div",{style:{textAlign:"center",padding:"44px 0",color:"#9CA3AF"}},
+            ce("div",{style:{fontSize:38,marginBottom:10}},"🤖"),
+            ce("div",{style:{fontSize:15,fontWeight:500,marginBottom:4}},"Hi! I'm TaskBot."),
+            ce("div",{style:{fontSize:13}},"Describe the task you want to create.")
+          ),
+          msgs.map((msg,i)=>ce("div",{key:i,style:{marginBottom:9,display:"flex",justifyContent:msg.role==="user"?"flex-end":"flex-start"}},
+            msg.role==="assistant"?ce("div",{style:{maxWidth:"88%"}},
+              ce("div",{style:{background:OL,borderRadius:"11px 11px 11px 0",padding:"8px 12px",fontSize:13,color:"#1F2937",lineHeight:1.6}},msg.parsed?.message||msg.content),
+              msg.parsed?.action==="create"&&msg.parsed?.task&&ce("div",{style:{marginTop:7,background:"#F0FDF4",borderRadius:8,padding:11,border:"1px solid #BBF7D0"}},
+                ce("div",{style:{fontSize:12,fontWeight:700,color:"#16A34A",marginBottom:6}},"Task Preview:"),
+                ce("div",{style:{fontSize:12,color:"#374151",lineHeight:1.8}},
+                  ce("strong",null,"Title: "),msg.parsed.task.title,ce("br"),
+                  ce("strong",null,"Category: "),msg.parsed.task.category,ce("br"),
+                  ce("strong",null,"Due: "),fmt(msg.parsed.task.endDate),ce("br"),
+                  msg.parsed.task.steps?.length&&ce("span",null,ce("strong",null,"Steps: "),msg.parsed.task.steps.length+" defined")
+                ),
+                ce("div",{style:{display:"flex",gap:7,marginTop:9}},
+                  ce(Btn,{c:"✅ Create Task",sz:"s",onClick:()=>confirmTask(msg.parsed.task)}),
+                  ce(Btn,{c:"Edit",v:"g",sz:"s",onClick:()=>setAiIn("Change: ")})
+                )
+              )
+            ):ce("div",{style:{background:O,color:"#fff",borderRadius:"11px 11px 0 11px",padding:"8px 12px",fontSize:13,maxWidth:"88%",lineHeight:1.5}},msg.content)
+          )),
+          aiLd&&ce("div",{style:{padding:"6px 12px",color:"#9CA3AF",fontSize:12}},"TaskBot is thinking...")
+        ),
+        ce("div",{style:{display:"flex",gap:7}},
+          ce("input",{placeholder:"Describe the task...",value:aiIn,onChange:e=>setAiIn(e.target.value),
+            onKeyDown:e=>e.key==="Enter"&&!aiLd&&sendAI(),
+            style:{flex:1,padding:"9px 12px",borderRadius:8,border:"1.5px solid #E5E7EB",fontSize:14,background:"#fff"}}),
+          ce(Btn,{c:"Send →",dis:aiLd||!aiIn.trim(),onClick:sendAI})
+        )
+      )})
+    ):ce(Card,{ch:ce("div",null,
+      ce(Inp,{lbl:"Task Title",val:title,ch:setTitle,ph:"Enter task title",req:true}),
+      ce("div",{style:{marginBottom:12}},
+        ce("label",{style:{display:"block",fontSize:13,fontWeight:500,color:"#374151",marginBottom:4}},"Description"),
+        ce("textarea",{value:desc,onChange:e=>setDesc(e.target.value),placeholder:"Describe the task...",rows:3,
+          style:{width:"100%",padding:"8px 11px",borderRadius:8,border:"1.5px solid #E5E7EB",fontSize:14,resize:"vertical",background:"#fff"}})
+      ),
+      ce(Sel,{lbl:"Category",val:cat,ch:c=>{setCat(c);setSteps(getSteps(c).map(n=>({name:n})));},req:true,opts:allCats.map(c=>({v:c,l:c}))}),
+      a&&ce(Sel,{lbl:"Assign To (leave blank = self)",val:asgn,ch:setAsgn,opts:users.filter(u=>u.role!=="admin"&&u.id!==user.id).map(u=>({v:u.id,l:u.name+" ("+u.role+")"}))}),
+      ce("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:11}},
+        ce(Inp,{lbl:"Start Date",val:sDate,ch:setSDate,type:"date"}),
+        ce(Inp,{lbl:"End Date",val:eDate,ch:setEDate,type:"date"})
+      ),
+      steps.length>0&&ce("div",{style:{marginBottom:12}},
+        ce("label",{style:{display:"block",fontSize:13,fontWeight:500,color:"#374151",marginBottom:7}},"Steps (auto-suggested — edit as needed)"),
+        steps.map((s,i)=>ce("div",{key:i,style:{display:"flex",gap:7,alignItems:"center",marginBottom:5}},
+          ce("span",{style:{fontSize:11,color:"#9CA3AF",width:16,flexShrink:0}},(i+1)+"."),
+          ce("input",{value:s.name,onChange:e=>setSteps(steps.map((x,xi)=>xi===i?{...x,name:e.target.value}:x)),
+            style:{flex:1,padding:"5px 9px",borderRadius:6,border:"1px solid #E5E7EB",fontSize:13,background:"#fff"}}),
+          ce("button",{onClick:()=>setSteps(steps.filter((_,xi)=>xi!==i)),style:{border:"none",background:"none",color:"#EF4444",cursor:"pointer",fontSize:16,lineHeight:1}},"×")
+        )),
+        ce("button",{onClick:()=>setSteps([...steps,{name:""}]),style:{border:"1px dashed #D1D5DB",background:"none",borderRadius:6,padding:"5px 12px",fontSize:12,color:"#6B7280",cursor:"pointer",width:"100%"}},"+ Add Step")
+      ),
+      ce("div",{style:{display:"flex",gap:7,justifyContent:"flex-end",paddingTop:4}},
+        ce(Btn,{c:"Cancel",v:"g",onClick:()=>setPage("tasks")}),
+        ce(Btn,{c:"✓ Create Task",dis:!title||!cat,onClick:createManual})
+      )
+    )})
+  );
+}
+
+// ── Team ──
+function Team({user,users,setUsers}){
+  const [show,setShow]=useState(false);
+  const [nu,setNu]=useState({name:"",uname:"",role:"user"});
+  const [err,setErr]=useState("");
+  const a=user.role==="admin";
+
+  function create(){
+    setErr("");
+    if(!nu.name.trim()||!nu.uname.trim()){setErr("Name and username required");return;}
+    const email=nu.uname.trim().toLowerCase().replace(/\s/g,"")+"@icici.in";
+    if(users.find(u=>u.email===email)){setErr("Username already taken");return;}
+    const newU={id:uid(),name:nu.name.trim(),email,password:"temp@123",role:nu.role,createdBy:user.id,createdAt:new Date().toISOString()};
+    const upd=[...users,newU];setUsers(upd);S.set("users",upd);
+    setShow(false);setNu({name:"",uname:"",role:"user"});
+  }
+
+  function del(id){
+    if(!confirm("Remove this user? Their tasks will remain."))return;
+    const upd=users.filter(u=>u.id!==id);setUsers(upd);S.set("users",upd);
+  }
+
+  return ce("div",{className:"fade"},
+    ce("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}},
+      ce("h2",{style:{fontSize:20,fontWeight:700,margin:0}},"Team Management"),
+      ce(Btn,{c:"+ Add Member",onClick:()=>setShow(true)})
+    ),
+    ce("div",{style:{display:"flex",flexDirection:"column",gap:9}},
+      users.map(u=>ce(Card,{key:u.id,ch:
+        ce("div",{style:{display:"flex",alignItems:"center",gap:12}},
+          ce("div",{style:{width:42,height:42,borderRadius:"50%",background:O+"20",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,fontWeight:700,color:O,flexShrink:0}},u.name.charAt(0).toUpperCase()),
+          ce("div",{style:{flex:1,minWidth:0}},
+            ce("div",{style:{fontSize:14,fontWeight:600}},u.name,u.id===user.id&&ce("span",{style:{fontSize:11,color:"#9CA3AF",marginLeft:5}},"(you)")),
+            ce("div",{style:{fontSize:12,color:"#9CA3AF",marginTop:1}},u.email)
+          ),
+          ce(Badge,{txt:u.role==="admin"?"Admin":u.role==="co-admin"?"Co-Admin":"Member",col:u.role==="admin"?O:u.role==="co-admin"?"#8B5CF6":"#6B7280"}),
+          a&&u.role!=="admin"&&u.id!==user.id&&ce("button",{onClick:()=>del(u.id),style:{border:"none",background:"#FEF2F2",color:"#EF4444",borderRadius:6,padding:"5px 9px",cursor:"pointer",fontSize:12,fontWeight:600,marginLeft:6}},"Remove")
+        )
+      }))
+    ),
+    ce(Modal,{open:show,close:()=>setShow(false),title:"Add Team Member",ch:ce("div",null,
+      ce(Inp,{lbl:"Full Name",val:nu.name,ch:v=>setNu({...nu,name:v}),ph:"Enter full name",req:true}),
+      ce("div",{style:{marginBottom:12}},
+        ce("label",{style:{display:"block",fontSize:13,fontWeight:500,color:"#374151",marginBottom:4}},"Username ",ce("span",{style:{color:"#EF4444"}},"*")),
+        ce("div",{style:{display:"flex",alignItems:"center",border:"1.5px solid #E5E7EB",borderRadius:8,overflow:"hidden",background:"#fff"}},
+          ce("input",{value:nu.uname,onChange:e=>setNu({...nu,uname:e.target.value.toLowerCase().replace(/\s/g,"")}),
+            placeholder:"username",style:{flex:1,padding:"8px 11px",border:"none",fontSize:14}}),
+          ce("span",{style:{padding:"0 10px",color:"#6B7280",fontSize:12,background:"#F9FAFB",alignSelf:"stretch",display:"flex",alignItems:"center",borderLeft:"1px solid #E5E7EB"}},"@icici.in")
+        ),
+        ce("div",{style:{fontSize:11,color:"#9CA3AF",marginTop:3}},"Default password: temp@123")
+      ),
+      a&&ce(Sel,{lbl:"Role",val:nu.role,ch:v=>setNu({...nu,role:v}),opts:[{v:"user",l:"Team Member"},{v:"co-admin",l:"Co-Admin (Sub Team Lead)"}]}),
+      err&&ce("div",{style:{color:"#EF4444",fontSize:13,marginBottom:9}},err),
+      ce("div",{style:{display:"flex",gap:7,justifyContent:"flex-end"}},
+        ce(Btn,{c:"Cancel",v:"g",onClick:()=>setShow(false)}),
+        ce(Btn,{c:"Create Account",onClick:create})
+      )
+    )})
+  );
+}
+
+// ── Reports ──
+function Reports({tasks,users}){
+  const [per,setPer]=useState("month");
+  const now=new Date();
+  const starts={day:new Date(now.getFullYear(),now.getMonth(),now.getDate()),week:new Date(now-7*864e5),month:new Date(now.getFullYear(),now.getMonth(),1),year:new Date(now.getFullYear(),0,1)};
+  const filt=tasks.filter(t=>new Date(t.createdAt)>=starts[per]);
+  const comp=filt.filter(t=>t.status==="completed");
+  const ovd=filt.filter(t=>t.status!=="completed"&&t.endDate&&new Date(t.endDate)<now);
+  const catMap={};filt.forEach(t=>{catMap[t.category||"Other"]=(catMap[t.category||"Other"]||0)+1;});
+  const perf=users.filter(u=>u.role==="user").map(u=>{
+    const ut=filt.filter(t=>t.assignedTo===u.id),uc=ut.filter(t=>t.status==="completed");
+    return{name:u.name,total:ut.length,done:uc.length,pct:ut.length?Math.round(uc.length/ut.length*100):0};
+  });
+
+  return ce("div",{className:"fade"},
+    ce("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18,flexWrap:"wrap",gap:9}},
+      ce("h2",{style:{fontSize:20,fontWeight:700,margin:0}},"Reports"),
+      ce("div",{style:{display:"flex",gap:7,flexWrap:"wrap"}},
+        ce("div",{style:{display:"flex",gap:2,background:"#F3F4F6",padding:3,borderRadius:8}},
+          [["day","Today"],["week","Week"],["month","Month"],["year","Year"]].map(([v,l])=>ce("button",{key:v,onClick:()=>setPer(v),style:{padding:"4px 10px",borderRadius:6,border:"none",cursor:"pointer",background:per===v?"#fff":"transparent",color:per===v?O:"#6B7280",fontSize:12,fontWeight:per===v?700:400}},l))
+        ),
+        ce(Btn,{c:"🖨 Print",v:"o",sz:"s",onClick:()=>window.print()})
+      )
+    ),
+    ce("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))",gap:11,marginBottom:16}},
+      ce(StatCard,{lbl:"Total",val:filt.length,ic:"📋"}),
+      ce(StatCard,{lbl:"Completed",val:comp.length,ic:"✅",col:"#22C55E"}),
+      ce(StatCard,{lbl:"On Time",val:comp.filter(t=>taskStatus(t)==="green").length,ic:"⏱",col:"#22C55E"}),
+      ce(StatCard,{lbl:"Overdue",val:ovd.length,ic:"⚠",col:"#EF4444"})
+    ),
+    ce(Card,{style:{marginBottom:14},ch:ce("div",null,
+      ce("h3",{style:{margin:"0 0 12px",fontSize:14,fontWeight:700}},"By Category"),
+      ce("table",{style:{width:"100%",borderCollapse:"collapse",fontSize:12}},
+        ce("thead",null,ce("tr",{style:{background:"#F9FAFB"}},
+          ["Category","Count","%"].map(h=>ce("th",{key:h,style:{padding:"7px 9px",textAlign:"left",fontWeight:600,color:"#6B7280"}},h))
+        )),
+        ce("tbody",null,
+          Object.entries(catMap).map(([cat,cnt])=>ce("tr",{key:cat,style:{borderBottom:"1px solid #F3F4F6"}},
+            ce("td",{style:{padding:"7px 9px"}},ce(Badge,{txt:cat,col:CAT_COL[cat]||O})),
+            ce("td",{style:{padding:"7px 9px",fontWeight:600}},cnt),
+            ce("td",{style:{padding:"7px 9px"}},filt.length?Math.round(cnt/filt.length*100)+"%":"0%")
+          )),
+          !Object.keys(catMap).length&&ce("tr",null,ce("td",{colSpan:3,style:{padding:"18px 9px",textAlign:"center",color:"#9CA3AF"}},"No data for this period"))
+        )
+      )
+    )}),
+    ce(Card,{ch:ce("div",null,
+      ce("h3",{style:{margin:"0 0 12px",fontSize:14,fontWeight:700}},"Team Performance"),
+      ce("table",{style:{width:"100%",borderCollapse:"collapse",fontSize:12}},
+        ce("thead",null,ce("tr",{style:{background:"#F9FAFB"}},
+          ["Member","Total","Done","Rate"].map(h=>ce("th",{key:h,style:{padding:"7px 9px",textAlign:"left",fontWeight:600,color:"#6B7280"}},h))
+        )),
+        ce("tbody",null,
+          perf.map(m=>ce("tr",{key:m.name,style:{borderBottom:"1px solid #F3F4F6"}},
+            ce("td",{style:{padding:"7px 9px",fontWeight:500}},m.name),
+            ce("td",{style:{padding:"7px 9px"}},m.total),
+            ce("td",{style:{padding:"7px 9px",color:"#22C55E",fontWeight:500}},m.done),
+            ce("td",{style:{padding:"7px 9px"}},
+              ce("div",{style:{display:"flex",alignItems:"center",gap:5}},
+                ce("div",{style:{flex:1,maxWidth:60}},ce(Prog,{pct:m.pct})),
+                ce("span",null,m.pct+"%")
+              )
+            )
+          )),
+          !perf.length&&ce("tr",null,ce("td",{colSpan:4,style:{padding:"18px 9px",textAlign:"center",color:"#9CA3AF"}},"No team members found"))
+        )
+      )
+    )})
+  );
+}
+
+// ── Profile ──
+function Profile({user,users,setUsers,setUser,logout}){
+  const [msg,setMsg]=useState("");
+  const [nn,setNn]=useState(user.name);
+  const [showN,setShowN]=useState(false);
+  const oval=useRef(),np=useRef(),cp=useRef();
+
+  function chgPass(){
+    const u=users.find(x=>x.id===user.id);
+    if(u.password!==oval.current.value){setMsg("❌ Current password incorrect");return;}
+    if(np.current.value!==cp.current.value){setMsg("❌ Passwords don't match");return;}
+    if(np.current.value.length<6){setMsg("❌ Minimum 6 characters");return;}
+    const upd=users.map(x=>x.id===user.id?{...x,password:np.current.value}:x);
+    setUsers(upd);S.set("users",upd);
+    setMsg("✅ Password updated!");
+    oval.current.value="";np.current.value="";cp.current.value="";
+  }
+
+  function chgName(){
+    if(!nn.trim())return;
+    const upd=users.map(x=>x.id===user.id?{...x,name:nn.trim()}:x);
+    setUsers(upd);S.set("users",upd);setUser({...user,name:nn.trim()});setShowN(false);
+  }
+
+  return ce("div",{className:"fade"},
+    ce("h2",{style:{fontSize:20,fontWeight:700,marginBottom:16}},"My Profile"),
+    ce("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:14}},
+      ce(Card,{ch:ce("div",null,
+        ce("div",{style:{display:"flex",alignItems:"center",gap:12,marginBottom:16}},
+          ce("div",{style:{width:56,height:56,borderRadius:"50%",background:O+"20",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,fontWeight:700,color:O}},user.name.charAt(0).toUpperCase()),
+          ce("div",null,
+            ce("div",{style:{fontSize:16,fontWeight:700}},user.name),
+            ce("div",{style:{fontSize:13,color:"#9CA3AF",margin:"2px 0"}},user.email),
+            ce(Badge,{txt:user.role==="admin"?"Admin":user.role==="co-admin"?"Co-Admin":"Team Member",col:O})
+          )
+        ),
+        ce(Btn,{c:"✏️ Change Name",v:"s",sz:"s",style:{width:"100%",marginBottom:9},onClick:()=>setShowN(true)}),
+        ce(Btn,{c:"Sign Out",v:"d",full:true,onClick:logout})
+      )}),
+      ce(Card,{ch:ce("div",null,
+        ce("h3",{style:{fontSize:14,fontWeight:700,margin:"0 0 12px"}},"Change Password"),
+        ce("div",{style:{marginBottom:10}},ce("label",{style:{display:"block",fontSize:13,fontWeight:500,color:"#374151",marginBottom:4}},"Current Password"),ce("input",{ref:oval,type:"password",style:{width:"100%",padding:"8px 11px",borderRadius:8,border:"1.5px solid #E5E7EB",fontSize:14}})),
+        ce("div",{style:{marginBottom:10}},ce("label",{style:{display:"block",fontSize:13,fontWeight:500,color:"#374151",marginBottom:4}},"New Password"),ce("input",{ref:np,type:"password",style:{width:"100%",padding:"8px 11px",borderRadius:8,border:"1.5px solid #E5E7EB",fontSize:14}})),
+        ce("div",{style:{marginBottom:10}},ce("label",{style:{display:"block",fontSize:13,fontWeight:500,color:"#374151",marginBottom:4}},"Confirm Password"),ce("input",{ref:cp,type:"password",style:{width:"100%",padding:"8px 11px",borderRadius:8,border:"1.5px solid #E5E7EB",fontSize:14}})),
+        msg&&ce("div",{style:{fontSize:13,marginBottom:9,color:msg.startsWith("✅")?"#22C55E":"#EF4444"}},msg),
+        ce(Btn,{c:"Update Password",onClick:chgPass})
+      )})
+    ),
+    ce(Modal,{open:showN,close:()=>setShowN(false),title:"Change Display Name",ch:ce("div",null,
+      ce(Inp,{lbl:"Display Name",val:nn,ch:setNn}),
+      ce("div",{style:{display:"flex",gap:7,justifyContent:"flex-end"}},
+        ce(Btn,{c:"Cancel",v:"g",onClick:()=>setShowN(false)}),
+        ce(Btn,{c:"Save",onClick:chgName})
+      )
+    )})
+  );
+}
+
+// ── Main App ──
+function App(){
+  const [user,setUser]=useState(null);
+  const [users,setUsers]=useState([]);
+  const [tasks,setTasks]=useState([]);
+  const [cCats,setCCats]=useState([]);
+  const [page,setPage]=useState("dash");
+  const [params,setParams]=useState({});
+  const [ready,setReady]=useState(false);
+  const [mobile,setMobile]=useState(window.innerWidth<700);
+
+  useEffect(()=>{
+    const h=()=>setMobile(window.innerWidth<700);
+    window.addEventListener("resize",h);
+    return()=>window.removeEventListener("resize",h);
+  },[]);
+
+  useEffect(()=>{
+    let us=S.get("users");
+    if(!us?.length){us=[DEF_ADMIN];S.set("users",us);}
+    setUsers(us);
+    setTasks(S.get("tasks")||[]);
+    setCCats(S.get("custom_cats")||[]);
+    const sid=S.get("session");
+    if(sid){const u=us.find(x=>x.id===sid);if(u)setUser(u);}
+    setReady(true);
+  },[]);
+
+  function login(u){setUser(u);setPage("dash");}
+  function logout(){S.set("session",null);setUser(null);setPage("dash");}
+
+  if(!ready)return ce("div",{style:{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:OL}},
+    ce("div",{style:{textAlign:"center"}},
+      ce("div",{style:{width:52,height:52,background:O,borderRadius:14,margin:"0 auto 12px",display:"flex",alignItems:"center",justifyContent:"center"}},
+        ce("span",{style:{color:"#fff",fontSize:24,fontWeight:900,fontStyle:"italic"}},"i")),
+      ce("div",{style:{color:"#6B7280",fontSize:13}},"Loading ICICI Marketing Hub...")
+    )
+  );
+
+  if(!user)return ce(Login,{onLogin:login});
+
+  const a=user.role==="admin"||user.role==="co-admin";
+
+  function renderPage(){
+    switch(page){
+      case"dash":return ce(Dashboard,{user,tasks,users,setPage,setParams});
+      case"tasks":return ce(TaskList,{user,tasks,users,setPage,setParams});
+      case"all":return ce(TaskList,{user,tasks,users,setPage,setParams,all:true});
+      case"create":return ce(CreateTask,{user,users,tasks,setTasks,setPage,cCats,setCCats});
+      case"detail":return ce(TaskDetail,{tid:params.tid,user,tasks,users,setTasks,setPage});
+      case"team":return a?ce(Team,{user,users,setUsers}):ce(Dashboard,{user,tasks,users,setPage,setParams});
+      case"reports":return a?ce(Reports,{tasks,users}):ce(Dashboard,{user,tasks,users,setPage,setParams});
+      case"profile":return ce(Profile,{user,users,setUsers,setUser,logout});
+      default:return ce(Dashboard,{user,tasks,users,setPage,setParams});
+    }
+  }
+
+  const pad=mobile?"14px 12px 80px":"24px 28px";
+  return ce("div",null,
+    !mobile&&ce(Sidebar,{user,page,setPage}),
+    ce("div",{style:{marginLeft:mobile?0:200,padding:pad,minHeight:"100vh",background:"#F9FAFB"}},renderPage()),
+    mobile&&ce(BottomNav,{user,page,setPage})
+  );
+}
+
+ReactDOM.render(ce(App,null),document.getElementById("app"));
+</script>
+</body>
+</html>
